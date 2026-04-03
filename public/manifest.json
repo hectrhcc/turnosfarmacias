@@ -1,21 +1,22 @@
 {
-  "name": "Farmacias de Turno Arica",
-  "short_name": "TurnosArica",
+  "name": "Farmacias Pro Arica",
+  "short_name": "FarmArica",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#111827",
-  "theme_color": "#f97316",
-  "description": "Encuentra la farmacia de turno más cercana en Arica",
+  "background_color": "#ffffff",
+  "theme_color": "#1e3a8a",
+  "description": "Encuentra la farmacia de turno más cercana en Arica, Chile",
   "icons": [
     {
-      "src": "/vite.svg",
+      "src": "/favicon.png",
       "sizes": "192x192",
-      "type": "image/svg+xml"
+      "type": "image/png"
     },
     {
-      "src": "/vite.svg",
+      "src": "/favicon.png",
       "sizes": "512x512",
-      "type": "image/svg+xml"
+      "type": "image/png"
     }
   ]
 }
+
