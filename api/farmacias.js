@@ -37,54 +37,34 @@ export default async function handler(req, res) {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s Timeout per request
+    const timeoutId = setTimeout(() => controller.abort(), 12000); // 12s en backend por si acaso
 
     const response = await fetch('https://midas.minsal.cl/farmacia_v2/WS/getLocalesTurnos.php', {
       signal: controller.signal,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Accept': 'application/json'
       }
     });
     
     clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      throw new Error(`MINSAL Server Error: ${response.status}`);
-    }
+    if (!response.ok) throw new Error('MINSAL Error');
 
     const data = await response.json();
 
-    // Cleaning and robust filtering for "ARICA"
-    const filteredData = data.filter(farmacia => {
-      if (!farmacia.comuna_nombre) return false;
-      const comuna = String(farmacia.comuna_nombre).trim().toUpperCase();
+    const filteredData = data.filter(f => {
+      // Robustez extrema en el filtro de comuna
+      const comuna = String(f.comuna_nombre || '').trim().toUpperCase();
       return comuna === 'ARICA';
-    }).map(farmacia => {
-      const cleanStr = (str) => typeof str === 'string' ? str.replace(/\u00b0/g, '°').trim() : str;
-      const cleaned = {};
-      for (const [key, value] of Object.entries(farmacia)) {
-        cleaned[key] = cleanStr(value);
-      }
-      return cleaned;
     });
 
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.status(200).json({
-      success: true,
-      data: filteredData,
-      isMocked: false
-    });
+    res.status(200).json({ success: true, data: filteredData, isMocked: false });
 
   } catch (error) {
-    console.warn('MINSAL Live Fetch Failed, providing Mock Data:', error.message);
+    console.warn('Backend Fallback triggered:', error.message);
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.status(200).json({
-      success: true,
-      data: MOCK_DATA,
-      isMocked: true,
-      error: error.message
-    });
+    res.status(200).json({ success: true, data: MOCK_DATA, isMocked: true });
   }
 }
