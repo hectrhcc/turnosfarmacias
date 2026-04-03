@@ -1,0 +1,23 @@
+{
+  "last_updated": "2026-04-03T19:59:48.546Z",
+  "count": 1,
+  "data": [
+    {
+      "fecha": "2026-04-03",
+      "local_id": "4035",
+      "fk_region": "1",
+      "fk_comuna": "1",
+      "fk_localidad": "424",
+      "local_nombre": "VIDA SANA",
+      "comuna_nombre": "ARICA",
+      "localidad_nombre": "ARICA - PERIFERIA",
+      "local_direccion": "AVENIDA CANCHA RAYADA   4130",
+      "funcionamiento_hora_apertura": "09:00:00",
+      "funcionamiento_hora_cierre": "21:00:00",
+      "local_telefono": "582215494",
+      "local_lat": "-18.4381519",
+      "local_lng": "-70.2901966",
+      "funcionamiento_dia": "viernes"
+    }
+  ]
+}
