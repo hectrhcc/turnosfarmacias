@@ -1,6 +1,6 @@
 export default async function handler(req, res) {
   const MOCK_DATA = [
-    {
+     {
       local_id: "mock-1",
       local_nombre: "Cruz Verde (Centro)",
       local_direccion: "21 de Mayo 201, Arica",
@@ -36,25 +36,31 @@ export default async function handler(req, res) {
   ];
 
   try {
-    // Controller for timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s Timeout
+    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s Timeout per request
 
     const response = await fetch('https://midas.minsal.cl/farmacia_v2/WS/getLocalesTurnos.php', {
-      signal: controller.signal
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+      }
     });
     
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      throw new Error('MINSAL Response Not OK');
+      throw new Error(`MINSAL Server Error: ${response.status}`);
     }
 
     const data = await response.json();
 
+    // Cleaning and robust filtering for "ARICA"
     const filteredData = data.filter(farmacia => {
       if (!farmacia.comuna_nombre) return false;
-      return farmacia.comuna_nombre.trim().toUpperCase() === 'ARICA';
+      const comuna = String(farmacia.comuna_nombre).trim().toUpperCase();
+      return comuna === 'ARICA';
     }).map(farmacia => {
       const cleanStr = (str) => typeof str === 'string' ? str.replace(/\u00b0/g, '°').trim() : str;
       const cleaned = {};
@@ -64,10 +70,7 @@ export default async function handler(req, res) {
       return cleaned;
     });
 
-    res.setHeader('Access-Control-Allow-Origin', '*'); 
-    res.setHeader('Access-Control-Allow-Methods', 'GET');
-    
-    // Return filtered data with source flag
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.status(200).json({
       success: true,
       data: filteredData,
@@ -75,7 +78,7 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.warn('MINSAL Fetch Failed or Timed Out, providing Mock Data:', error.message);
+    console.warn('MINSAL Live Fetch Failed, providing Mock Data:', error.message);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.status(200).json({
       success: true,

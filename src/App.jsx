@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import React, { useState, useEffect, useCallback } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap, Circle } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Phone, Navigation, MapPin, User, Plus, Info, Loader2, AlertCircle } from 'lucide-react';
+import { Phone, Navigation, MapPin, User, Plus, Info, Loader2, AlertCircle, Crosshair } from 'lucide-react';
 import { renderToString } from 'react-dom/server';
 
 const MORRO_COORD = { lat: -18.4783, lng: -70.3125 };
@@ -65,39 +65,50 @@ function MapUpdater({ center }) {
 function App() {
   const [pharmacies, setPharmacies] = useState([]);
   const [userLocation, setUserLocation] = useState(null);
+  const [accuracy, setAccuracy] = useState(0);
   const [nearestPharmacy, setNearestPharmacy] = useState(null);
   const [usingFallback, setUsingFallback] = useState(false);
   const [isMocked, setIsMocked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
+  const [isRecalculating, setIsRecalculating] = useState(false);
 
-  // 1. Geolocalización blindada con fallback a los 5 segundos
-  useEffect(() => {
-    const getLocation = new Promise((resolve, reject) => {
-      if (!navigator.geolocation) {
-        return reject(new Error('Geolocalización no soportada.'));
-      }
-      navigator.geolocation.getCurrentPosition(resolve, reject, {
-        enableHighAccuracy: true,
-        timeout: 5000, 
-        maximumAge: 0
-      });
-    });
-
-    getLocation.then((position) => {
-      setUserLocation({
-        lat: position.coords.latitude,
-        lng: position.coords.longitude
-      });
-    }).catch((err) => {
-      console.warn("Error o denegación de GPS, usando Morro de Arica como fallback", err);
+  // Function to refresh user coordinates
+  const refreshLocation = useCallback(() => {
+    setIsRecalculating(true);
+    if (!navigator.geolocation) {
+      setErrorMsg('Geolocalización no soportada.');
       setUserLocation(MORRO_COORD);
       setUsingFallback(true);
-    });
+      setIsRecalculating(false);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setUserLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude
+        });
+        setAccuracy(position.coords.accuracy);
+        setUsingFallback(false);
+        setIsRecalculating(false);
+      },
+      (err) => {
+        console.warn("GPS Error, using Morro de Arica as fallback:", err.message);
+        setUserLocation(MORRO_COORD);
+        setUsingFallback(true);
+        setIsRecalculating(false);
+        setAccuracy(0);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
   }, []);
 
-  // 2. Fetch Farmacias
+  // Initial Location & Fetch
   useEffect(() => {
+    refreshLocation();
+    
     const fetchPharmacies = async () => {
       try {
         const res = await fetch('/api/farmacias').catch(() => null);
@@ -108,7 +119,6 @@ function App() {
           dataToSet = result.data || [];
           setIsMocked(result.isMocked || false);
         } else {
-          // Si Vercel Function falla totalmente (sin Mock interno)
           throw new Error('API Response Error');
         }
         
@@ -116,14 +126,14 @@ function App() {
       } catch (err) {
         console.error("Critical Fetch Error:", err);
         setErrorMsg('Servidor Minsal no disponible temporalmente.');
-        // Si todo falla, intentamos cargar localmente un pequeño arreglo si es necesario pero asumimos que el mock ya viene por API
+      } finally {
         setLoading(false);
       }
     };
     fetchPharmacies();
-  }, []);
+  }, [refreshLocation]);
 
-  // 3. Calculo de Distancia cuando la ubicación y las farmacias están listas
+  // Distance calculation logic
   useEffect(() => {
     if (userLocation && pharmacies.length > 0) {
       let nearest = null;
@@ -141,20 +151,8 @@ function App() {
       });
       
       setNearestPharmacy(nearest);
-      setLoading(false);
-    } else if (!loading && pharmacies.length === 0 && userLocation) {
-        // Handle case with no pharmacies
-        setLoading(false);
     }
   }, [userLocation, pharmacies]);
-
-  // Si pasaron 8 segundos y sigue cargando, forzamos el fin (Seguridad adicional)
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (loading) setLoading(false);
-    }, 8000);
-    return () => clearTimeout(timer);
-  }, [loading]);
 
 
   if (loading) {
@@ -162,8 +160,8 @@ function App() {
       <div className="w-full h-screen bg-white flex flex-col items-center justify-center space-y-6">
         <Loader2 className="w-16 h-16 text-blue-900 animate-spin" />
         <div className="text-center">
-          <h2 className="text-blue-900 text-2xl font-bold mb-2">Buscando Farmacias...</h2>
-          <p className="text-slate-500">Conectando con el Servidor Nacional de Turnos</p>
+          <h2 className="text-blue-900 text-2xl font-bold mb-2 tracking-tight">Buscando Farmacias...</h2>
+          <p className="text-slate-500 text-sm">Conectando con el Servidor Nacional de Turnos</p>
         </div>
       </div>
     );
@@ -174,23 +172,34 @@ function App() {
   return (
     <div className="relative w-full h-screen bg-white text-slate-800 flex flex-col font-sans overflow-hidden">
       
-      {/* Header Rediseñado */}
+      {/* Header Rediseñado V2 */}
       <header className="absolute top-0 left-0 w-full z-20 bg-white/95 backdrop-blur-md p-4 shadow-sm border-b border-slate-100 flex flex-col items-center">
-        <h1 className="text-4xl md:text-5xl font-extrabold text-blue-900 text-center tracking-tight">
-          Farmacias Arica
-        </h1>
-        <p className="text-sm font-medium text-green-700 mt-1 uppercase tracking-widest flex items-center gap-2">
-          {isMocked ? <AlertCircle className="w-4 h-4" /> : null}
-          {isMocked ? "Modo Emergencia Local" : "Turnos Reales de Hoy"}
-        </p>
+        <div className="w-full max-w-md flex items-center justify-between">
+           <div className="w-8"></div> {/* Spacer */}
+           <h1 className="text-4xl md:text-5xl font-extrabold text-blue-900 text-center tracking-tight">
+            Farmacias Arica
+          </h1>
+           <button 
+             onClick={refreshLocation}
+             className={`p-2 rounded-full ${isRecalculating ? 'text-blue-300' : 'text-blue-900 hover:bg-slate-100'} transition-all`}
+             title="Recalcular mi ubicación"
+             disabled={isRecalculating}
+           >
+             <Crosshair className={`w-6 h-6 ${isRecalculating ? 'animate-spin' : ''}`} />
+           </button>
+        </div>
+        <div className="text-sm font-medium text-green-700 mt-1 uppercase tracking-widest flex items-center gap-2">
+          {isMocked ? <AlertCircle className="w-4 h-4 animate-pulse" /> : null}
+          {isMocked ? <span className="bg-orange-50 px-2 py-0.5 rounded text-orange-700">Modo Emergencia Local</span> : "Turnos Reales del Minsal"}
+        </div>
       </header>
 
       {/* Alertas dinámicas */}
       <div className="absolute top-[105px] left-0 w-full flex flex-col items-center gap-2 z-20 px-4 pointer-events-none">
         {usingFallback && (
-          <div className="bg-blue-50 text-blue-800 py-2 px-4 rounded-full text-[10px] font-bold shadow-sm border border-blue-100 flex items-center gap-2 pointer-events-auto uppercase tracking-wide">
+          <div className="bg-blue-600 text-white py-1.5 px-4 rounded-full text-[10px] font-bold shadow-lg flex items-center gap-2 pointer-events-auto uppercase tracking-wide">
             <Info className="w-3 h-3" />
-            Ubicación: Morro de Arica (Fallback)
+            Ubicación Estimada: Morro (Fallback)
           </div>
         )}
       </div>
@@ -205,9 +214,18 @@ function App() {
           <MapUpdater center={mapCenter} />
           
           {userLocation && (
-            <Marker position={[userLocation.lat, userLocation.lng]} icon={userIcon}>
-              <Popup className="font-bold text-center text-blue-900">Tu Ubicación</Popup>
-            </Marker>
+            <>
+              <Marker position={[userLocation.lat, userLocation.lng]} icon={userIcon}>
+                <Popup className="font-bold text-center text-blue-900">Tu Ubicación {accuracy > 0 && <span className="block text-[10px] font-normal">± {accuracy.toFixed(0)}m</span>}</Popup>
+              </Marker>
+              {accuracy > 0 && !usingFallback && (
+                <Circle 
+                  center={[userLocation.lat, userLocation.lng]}
+                  radius={accuracy}
+                  pathOptions={{ fillColor: '#3b82f6', color: '#3b82f6', fillOpacity: 0.15, weight: 1 }}
+                />
+              )}
+            </>
           )}
 
           {pharmacies.map(pharma => {
@@ -216,9 +234,7 @@ function App() {
             if (isNaN(lat) || isNaN(lng)) return null;
 
             const isNearest = nearestPharmacy && nearestPharmacy.local_id === pharma.local_id;
-            
-            // Re-calculate distance here for popup
-            const dist = getDistanceFromLatLonInKm(userLocation ? userLocation.lat : MORRO_COORD.lat, userLocation ? userLocation.lng : MORRO_COORD.lng, lat, lng);
+            const distPop = getDistanceFromLatLonInKm(userLocation ? userLocation.lat : MORRO_COORD.lat, userLocation ? userLocation.lng : MORRO_COORD.lng, lat, lng);
 
             return (
               <Marker 
@@ -231,9 +247,9 @@ function App() {
                   <div className="text-slate-800 flex flex-col pt-1">
                     <strong className="text-blue-900 text-[15px] leading-tight mb-1">{pharma.local_nombre}</strong>
                     <span className="text-slate-600 text-sm mb-1">{pharma.local_direccion}</span>
-                    <span className="text-green-700 font-bold text-sm mb-2">A {dist.toFixed(1)} km de ti</span>
+                    <span className="text-green-700 font-bold text-sm mb-2 font-mono tracking-tight">A {distPop.toFixed(2)} km de ti</span>
                     <div className="bg-slate-50 rounded p-2 text-[10px] border border-slate-100">
-                      <strong>Horario turnos frecuentes:</strong> <br/>
+                      <strong>Horario turnos:</strong> <br/>
                       {pharma.funcionamiento_hora_apertura} - {pharma.funcionamiento_hora_cierre}
                     </div>
                   </div>
@@ -257,13 +273,13 @@ function App() {
             <p className="text-slate-600 mb-4 ml-7 text-sm">{nearestPharmacy.local_direccion}</p>
             
             <div className="flex justify-between items-center ml-7 mb-4">
-              <div className="px-3 py-1 bg-green-50 text-green-700 rounded-full text-xs font-bold border border-green-100">
-                A {nearestPharmacy.distance.toFixed(1)} km de ti
+              <div className="px-3 py-1 bg-green-50 text-green-700 rounded-full text-xs font-bold border border-green-100 font-mono tracking-tighter">
+                A {nearestPharmacy.distance.toFixed(1)} km
               </div>
               {nearestPharmacy.local_telefono && (
                 <a 
                   href={`tel:${nearestPharmacy.local_telefono}`} 
-                  className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100 text-blue-900 px-4 py-2 border border-slate-200 rounded-xl text-sm font-semibold transition-colors"
+                  className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100 text-blue-900 px-4 py-2 border border-slate-200 rounded-xl text-sm font-semibold transition-colors shadow-sm"
                 >
                   <Phone className="w-4 h-4 text-green-600" />
                   Llamar
@@ -274,24 +290,23 @@ function App() {
             {/* Accion Principal - Google Maps */}
             <button 
               onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&origin=${userLocation ? userLocation.lat : MORRO_COORD.lat},${userLocation ? userLocation.lng : MORRO_COORD.lng}&destination=${nearestPharmacy.local_lat},${nearestPharmacy.local_lng}`, '_blank')}
-              className="w-full flex items-center justify-center gap-3 bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-lg py-4 px-6 rounded-2xl shadow-xl transition-all active:scale-[0.98]"
+              className="w-full flex items-center justify-center gap-3 bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-lg py-4 px-6 rounded-2xl shadow-xl transition-all active:scale-[0.98] group"
             >
-              <Navigation className="w-6 h-6 animate-pulse" />
+              <Navigation className="w-6 h-6 group-hover:animate-pulse" />
               <span>IR A LA MÁS CERCANA</span>
             </button>
           </div>
 
           <p className="text-[10px] text-slate-400 font-medium mt-1">
-            {isMocked ? "Mostrando turnos frecuentes (Servidor Minsal no disponible temporalmente)" : "App diseñada para funcionar offline una vez cargada."}
+            {isMocked ? "Mostrando turnos frecuentes (Minsal Offline)" : "Datos actualizados en vivo desde Minsal"}
           </p>
         </div>
       )}
 
-      {/* Si no hay farmacias ni errores pero cargó (vacío raro) */}
       {!loading && pharmacies.length === 0 && (
          <div className="absolute bottom-10 w-full px-4 z-20">
-           <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-lg text-center">
-             <p className="text-slate-700 font-medium text-sm">Error cargando información. Intente más tarde.</p>
+           <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-lg text-center font-bold text-red-700 text-sm">
+             Servidor Minsal Offline. Intente más tarde.
            </div>
          </div>
       )}
